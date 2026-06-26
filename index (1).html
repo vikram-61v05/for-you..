@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>An Infinite Garden for Her 🌹</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #bfe8ff;
+    font-family: 'Georgia', 'Times New Roman', serif;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    display: block;
+  }
+  #ui {
+    position: absolute;
+    top: 5%;
+    width: 100%;
+    text-align: center;
+    color: rgba(255,255,255,0.85);
+    text-shadow: 0 1px 6px rgba(0,0,0,0.35);
+    pointer-events: none;
+    letter-spacing: 2px;
+    font-style: italic;
+    font-size: clamp(14px, 2.4vw, 22px);
+    animation: fadeOut 4s forwards;
+    animation-delay: 3s;
+    padding: 0 16px;
+  }
+  @keyframes fadeOut { to { opacity: 0; } }
+
+  #note {
+    position: absolute;
+    bottom: 4%;
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    padding: 0 20px;
+    z-index: 5;
+  }
+  #note span {
+    display: inline-block;
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: blur(3px);
+    color: #3a2418;
+    font-style: italic;
+    letter-spacing: 1px;
+    font-size: clamp(13px, 2.2vw, 19px);
+    padding: 10px 22px;
+    border-radius: 14px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  }
+</style>
+</head>
+<body>
+<div id="ui">He made a bouquet for me 🌹 — the garden grows on its own...</div>
+<div id="note"><span> for my flower girl🌹</span></div>
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, groundY;
+const flowers = [];
+const clouds = [];
+const grassBlades = [];
+
+// ---- Standard reference sizes (used to scale flower density sensibly) ----
+// Laptop: 1440x900 / Phone: 390x844 -- we just adapt to actual viewport,
+// but keep a density baseline so phones don't get overcrowded.
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  groundY = H * 0.82;
+  buildClouds();
+  buildGrass();
+}
+window.addEventListener('resize', resize);
+
+function buildClouds() {
+  clouds.length = 0;
+  const count = Math.max(3, Math.round(W / 320));
+  for (let i = 0; i < count; i++) {
+    clouds.push({
+      x: Math.random() * W,
+      y: H * (0.05 + Math.random() * 0.18),
+      scale: 0.6 + Math.random() * 0.9,
+      speed: 0.15 + Math.random() * 0.2
+    });
+  }
+}
+
+function buildGrass() {
+  grassBlades.length = 0;
+  const count = Math.round(W / 5);
+  for (let i = 0; i < count; i++) {
+    grassBlades.push({
+      x: Math.random() * W,
+      h: 10 + Math.random() * 22,
+      tilt: (Math.random() - 0.5) * 0.6,
+      shade: 0.7 + Math.random() * 0.5,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+resize();
+
+const PALETTES = ['rose', 'rose', 'lily', 'daisy', 'sunflower', 'tulip'];
+
+// Single shared root point — every flower's stem starts here, like one bouquet
+function rootPoint() {
+  return { x: W / 2, y: groundY + 6 };
+}
+
+function makeFlower() {
+  const root = rootPoint();
+  const type = PALETTES[Math.floor(Math.random() * PALETTES.length)];
+  const targetHeight = 130 + Math.random() * 110;
+  // fan the stems out in a bouquet spread around the shared root
+  const lean = (Math.random() - 0.5) * 1.5; // how far the top leans sideways
+  const scale = 0.75 + Math.random() * 0.55;
+  return {
+    x: root.x, y: root.y, type, scale, lean,
+    targetHeight,
+    growth: 0,
+    bloom: 0,
+    leafGrowth: 0,
+    born: performance.now(),
+    swayPhase: Math.random() * Math.PI * 2
+  };
+}
+
+// ---- Automatic planting ----
+let nextPlantAt = 0;
+
+function scheduleNextPlant(time) {
+  // Plant every 0.5s - 1.4s, a bit faster on bigger screens
+  const base = W > 900 ? 500 : 700;
+  nextPlantAt = time + base + Math.random() * 700;
+}
+
+function maxFlowers() {
+  return Math.max(18, Math.round((W / 1440) * 60));
+}
+
+function autoPlant(time) {
+  if (time < nextPlantAt) return;
+  scheduleNextPlant(time);
+  if (flowers.length >= maxFlowers()) {
+    // recycle the oldest flower to keep the bouquet lively forever
+    flowers.shift();
+  }
+  flowers.push(makeFlower());
+}
+
+// Still allow manual click/tap to add a flower, also from the shared root
+canvas.addEventListener('click', () => {
+  flowers.push(makeFlower());
+});
+canvas.addEventListener('touchstart', () => {
+  flowers.push(makeFlower());
+}, { passive: true });
+
+// ---- Sky / clouds / grass ----
+
+function drawSky() {
+  const grad = ctx.createLinearGradient(0, 0, 0, groundY);
+  grad.addColorStop(0, '#7ec8f2');
+  grad.addColorStop(0.6, '#bfe8ff');
+  grad.addColorStop(1, '#eaf9ea');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, groundY + 2);
+
+  // sun glow
+  ctx.save();
+  const sunX = W * 0.85, sunY = H * 0.14, sunR = Math.max(40, W * 0.06);
+  const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR * 2.2);
+  sunGrad.addColorStop(0, 'rgba(255,250,210,0.95)');
+  sunGrad.addColorStop(1, 'rgba(255,250,210,0)');
+  ctx.fillStyle = sunGrad;
+  ctx.beginPath();
+  ctx.arc(sunX, sunY, sunR * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.fillStyle = '#fff7da';
+  ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawClouds(time) {
+  ctx.save();
+  
+  // Set up text alignment so it centers perfectly inside the cloud
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (const c of clouds) {
+    // 1. Update the cloud's horizontal position
+    c.x += c.speed;
+    if (c.x > W + 120) c.x = -120;
+    
+    const s = c.scale;
+    
+    // 2. Draw the fluffy cloud puffs (individually filled to look correct)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, 40 * s, 18 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.ellipse(c.x + 30 * s, c.y + 6 * s, 30 * s, 14 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.ellipse(c.x - 30 * s, c.y + 6 * s, 28 * s, 13 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 3. Write "me and me" in the center of the moving cloud
+    ctx.fillStyle = '#4A4A4A'; // Dark gray text so it's readable on white clouds
+    
+    // Dynamically adjust font size based on the cloud's scale
+    const fontSize = Math.round(13 * s); 
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    
+    // Draw the text at the exact center (c.x, c.y) of the cloud
+    ctx.fillText("I miss you", c.x, c.y + (2 * s)); 
+  }
+  
+  ctx.restore();
+}
+
+function drawGround() {
+  const grad = ctx.createLinearGradient(0, groundY, 0, H);
+  grad.addColorStop(0, '#5fae3e');
+  grad.addColorStop(1, '#2f7a26');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, groundY, W, H - groundY);
+
+  // soft horizon blend
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(0, groundY - 2, W, 6);
+  ctx.restore();
+}
+
+function drawGrass(time) {
+  ctx.save();
+  for (const g of grassBlades) {
+    const sway = Math.sin(time * 0.0015 + g.phase) * 4;
+    const green = Math.round(70 * g.shade);
+    ctx.strokeStyle = `rgb(${30 + green * 0.3}, ${90 + green}, ${30 + green * 0.25})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(g.x, groundY + 2);
+    ctx.quadraticCurveTo(
+      g.x + g.tilt * 10 + sway, groundY - g.h * 0.6,
+      g.x + g.tilt * 16 + sway * 1.4, groundY - g.h
+    );
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---- Flower stems / leaves ----
+
+function drawStem(f, time, stemTopY) {
+  const idleSway = Math.sin(time * 0.0012 + f.swayPhase) * 4;
+  const spread = f.lean * (f.y - stemTopY) * 0.55; // bouquet fan-out amount
+  const topX = f.x + spread + idleSway;
+  const midX = f.x + spread * 0.45 + idleSway * 0.5;
+
+  ctx.save();
+  ctx.strokeStyle = '#1f5c2b';
+  ctx.lineWidth = 4 * f.scale;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(f.x, f.y);
+  ctx.quadraticCurveTo(midX, f.y - (f.y - stemTopY) * 0.5, topX, stemTopY);
+  ctx.stroke();
+
+  if (f.leafGrowth > 0) {
+    const leafY1 = f.y - (f.y - stemTopY) * 0.35;
+    const leafY2 = f.y - (f.y - stemTopY) * 0.6;
+    const leafX1 = f.x + spread * 0.25;
+    const leafX2 = f.x + spread * 0.45;
+    drawLeaf(leafX1, leafY1, -1, f.leafGrowth, f.scale);
+    drawLeaf(leafX2, leafY2, 1, f.leafGrowth, f.scale);
+  }
+  ctx.restore();
+  return { topX, topY: stemTopY };
+}
+
+function drawLeaf(x, y, dir, growth, scale) {
+  const len = 32 * growth * scale;
+  const wid = 14 * growth * scale;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(dir * 0.6);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(dir * len * 0.6, -wid, dir * len, 0);
+  ctx.quadraticCurveTo(dir * len * 0.6, wid * 0.7, 0, 0);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, dir * len, 0);
+  grad.addColorStop(0, '#234d1f');
+  grad.addColorStop(1, '#3a7a35');
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+}
+
+// ---- Flower head renderers ----
+
+function drawRose(cx, cy, bloom, scale) {
+  const R = 26 * scale;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  const outerLayers = 3;
+  for (let layer = outerLayers; layer >= 1; layer--) {
+    const layerBloom = Math.min(1, Math.max(0, (bloom * 4 - (outerLayers - layer))));
+    if (layerBloom <= 0) continue;
+    const petals = 5;
+    const layerR = R * (0.55 + layer * 0.22);
+    for (let i = 0; i < petals; i++) {
+      const angle = (i / petals) * Math.PI * 2 + layer * 0.5;
+      const px = Math.cos(angle) * layerR * 0.35 * layerBloom;
+      const py = Math.sin(angle) * layerR * 0.35 * layerBloom;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle + Math.PI / 2);
+      const petalLen = layerR * 0.9 * layerBloom;
+      const petalWid = layerR * 0.62;
+      ctx.beginPath();
+      ctx.moveTo(0, petalLen * 0.15);
+      ctx.bezierCurveTo(petalWid, petalLen * 0.1, petalWid * 0.8, -petalLen * 0.9, 0, -petalLen);
+      ctx.bezierCurveTo(-petalWid * 0.8, -petalLen * 0.9, -petalWid, petalLen * 0.1, 0, petalLen * 0.15);
+      ctx.closePath();
+      const shade = 0.45 + layer * 0.12;
+      ctx.fillStyle = `rgba(${190 * shade + 40},${20 * shade},${55 * shade + 10},0.9)`;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,10,35,0.4)';
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  const innerBloom = Math.min(1, bloom * 2.2);
+  const innerR = R * 0.55 * (0.4 + innerBloom * 0.6);
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const r = innerR * (0.6 + 0.4 * Math.sin(i * 1.3));
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y); else ctx.quadraticCurveTo(x * 1.2, y * 1.2, x, y);
+  }
+  ctx.closePath();
+  const innerGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, innerR);
+  innerGrad.addColorStop(0, '#ff5d7a');
+  innerGrad.addColorStop(1, '#c2123f');
+  ctx.fillStyle = innerGrad;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawLily(cx, cy, bloom, scale) {
+  const R = 30 * scale * bloom;
+  ctx.save();
+  ctx.translate(cx, cy);
+  const petals = 6;
+  for (let i = 0; i < petals; i++) {
+    const angle = (i / petals) * Math.PI * 2;
+    ctx.save();
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(R * 0.28, -R * 0.55, 0, -R);
+    ctx.quadraticCurveTo(-R * 0.28, -R * 0.55, 0, 0);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, 0, 0, -R);
+    grad.addColorStop(0, '#fdf6f0');
+    grad.addColorStop(1, '#ffffff');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(160,150,40,0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.fillStyle = '#e8b400';
+  ctx.arc(0, 0, R * 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawDaisy(cx, cy, bloom, scale) {
+  const R = 22 * scale * bloom;
+  ctx.save();
+  ctx.translate(cx, cy);
+  const petals = 8;
+  for (let i = 0; i < petals; i++) {
+    const angle = (i / petals) * Math.PI * 2;
+    ctx.save();
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.ellipse(0, -R * 0.6, R * 0.22, R * 0.6, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#e8453c';
+    ctx.fill();
+    ctx.restore();
+  }
+  const cGrad = ctx.createRadialGradient(0, 0, 1, 0, 0, R * 0.32);
+  cGrad.addColorStop(0, '#ffe066');
+  cGrad.addColorStop(1, '#f5a623');
+  ctx.beginPath();
+  ctx.fillStyle = cGrad;
+  ctx.arc(0, 0, R * 0.32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSunflower(cx, cy, bloom, scale) {
+  const R = 34 * scale * bloom;
+  ctx.save();
+  ctx.translate(cx, cy);
+  const petals = 14;
+  for (let i = 0; i < petals; i++) {
+    const angle = (i / petals) * Math.PI * 2;
+    ctx.save();
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.ellipse(0, -R * 0.62, R * 0.16, R * 0.45, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#f6b93b';
+    ctx.fill();
+    ctx.restore();
+  }
+  const cGrad = ctx.createRadialGradient(0, 0, 1, 0, 0, R * 0.42);
+  cGrad.addColorStop(0, '#6b4226');
+  cGrad.addColorStop(1, '#3e2415');
+  ctx.beginPath();
+  ctx.fillStyle = cGrad;
+  ctx.arc(0, 0, R * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawTulipBud(cx, cy, bloom, scale) {
+  const R = 24 * scale;
+  const open = bloom;
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let side = -1; side <= 1; side += 2) {
+    ctx.save();
+    ctx.rotate(side * 0.18 * open);
+    ctx.beginPath();
+    ctx.moveTo(0, 6);
+    ctx.quadraticCurveTo(side * R * 0.5, -R * 0.2, side * R * 0.18, -R * (0.95 + open * 0.1));
+    ctx.quadraticCurveTo(0, -R * 0.6, 0, 6);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, 6, 0, -R);
+    grad.addColorStop(0, '#7a1230');
+    grad.addColorStop(1, '#c2123f');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.moveTo(0, 6);
+  ctx.quadraticCurveTo(R * 0.32, -R * 0.5, 0, -R * (1 + open * 0.15));
+  ctx.quadraticCurveTo(-R * 0.32, -R * 0.5, 0, 6);
+  ctx.closePath();
+  const grad2 = ctx.createLinearGradient(0, 6, 0, -R);
+  grad2.addColorStop(0, '#8c1535');
+  grad2.addColorStop(1, '#d6275a');
+  ctx.fillStyle = grad2;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawHead(f, x, y) {
+  switch (f.type) {
+    case 'rose': drawRose(x, y, f.bloom, f.scale); break;
+    case 'lily': drawLily(x, y, f.bloom, f.scale); break;
+    case 'daisy': drawDaisy(x, y, f.bloom, f.scale); break;
+    case 'sunflower': drawSunflower(x, y, f.bloom, f.scale); break;
+    case 'tulip': drawTulipBud(x, y, f.bloom, f.scale); break;
+  }
+}
+
+function animate(time) {
+  autoPlant(time);
+
+  ctx.clearRect(0, 0, W, H);
+  drawSky();
+  drawClouds(time);
+  drawGround();
+  drawGrass(time);
+
+  // sort by y so flowers in "front" (closer to camera / lower) draw on top
+  const sorted = [...flowers].sort((a, b) => a.y - b.y);
+
+  for (const f of sorted) {
+    const age = time - f.born;
+    f.growth = Math.min(1, age / 900);
+    f.leafGrowth = Math.min(1, Math.max(0, (age - 250) / 700));
+    f.bloom = Math.min(1, Math.max(0, (age - 600) / 900));
+
+    const easeGrowth = 1 - Math.pow(1 - f.growth, 3);
+    const stemTopY = f.y - f.targetHeight * easeGrowth * f.scale;
+    const top = drawStem(f, time, stemTopY);
+
+    if (f.bloom > 0.02) {
+      drawHead(f, top.topX, top.topY - 4);
+    } else if (f.growth > 0.85) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.fillStyle = '#3a7a35';
+      ctx.arc(top.topX, top.topY, 4 * f.scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
